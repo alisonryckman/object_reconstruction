@@ -84,8 +84,10 @@ int main(int argc, char **argv) {
             cv::Mat bgra{static_cast<int>(image.getHeight()), static_cast<int>(image.getWidth()), CV_8UC4, image.getPtr<sl::uchar1>()};
             cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
 
+            // pc is width x height with each point having 8 32-bit float channels (x, y, z, rgb, normal_x, normal_y, normal_z, curvature)
+            // since there's no CV_32FC8, we use CV_64FC4 cuz same number of bytes
             cv::Mat point_cloud_mat{static_cast<int>(point_cloud.getHeight()), static_cast<int>(point_cloud.getWidth()), CV_32FC4, point_cloud.getPtr<sl::uchar1>()};
-
+            ROS_INFO("Matrix width: %d, height: %d", point_cloud_mat.cols, point_cloud_mat.rows);
             sl::POSITIONAL_TRACKING_STATE status = zed.getPosition(pose);
             if (status == sl::POSITIONAL_TRACKING_STATE::OK) {
                 sl::Translation const& translation = pose.getTranslation();
@@ -103,10 +105,13 @@ int main(int argc, char **argv) {
                 ROS_WARN_STREAM("Positional tracking failed: " << status);
             }
 
+            auto header = std_msgs::Header();
+            header.stamp = ros::Time::now();
+            header.frame_id = "zed_left_camera_frame";
+
             // publish left image
             sensor_msgs::Image img_msg;
-            img_msg.header.stamp = ros::Time::now();
-            img_msg.header.frame_id = "zed_left_camera_frame";
+            img_msg.header = header;
             img_msg.height = bgr.rows;
             img_msg.width = bgr.cols;
             img_msg.encoding = "bgr8";
@@ -117,11 +122,14 @@ int main(int argc, char **argv) {
 
             // publish left point cloud
             sensor_msgs::PointCloud2 pc_msg;
-            pc_msg.header.stamp = ros::Time::now();
+            pc_msg.header = header;
             pc_msg.height = point_cloud_mat.rows;
             pc_msg.width = point_cloud_mat.cols;
             fillPointCloudMessageHeader(pc_msg);
             pc_msg.is_bigendian = false;
+            // TODO: ?????? math is not mathing??
+            pc_msg.point_step = 16;
+            pc_msg.row_step = 16 * point_cloud_mat.cols;
             pc_msg.data = std::vector<uint8_t>(point_cloud_mat.data, point_cloud_mat.data + point_cloud_mat.total() * point_cloud_mat.elemSize());
             pub_left_pc.publish(pc_msg);
 
@@ -129,7 +137,5 @@ int main(int argc, char **argv) {
             throw std::runtime_error("Failed to grab");
         }
     }
-
-
     return 0;
 }
