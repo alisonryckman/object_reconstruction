@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
     init_params.camera_resolution = sl::RESOLUTION::HD720;
     init_params.camera_fps = 60;
     init_params.coordinate_units = sl::UNIT::METER;
-    init_params.depth_mode = sl::DEPTH_MODE::PERFORMANCE;
+    init_params.depth_mode = sl::DEPTH_MODE::ULTRA;
     init_params.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD; // Match ROS
     init_params.depth_maximum_distance = 12.0f;
     init_params.depth_mode = sl::DEPTH_MODE::PERFORMANCE;
@@ -72,6 +72,7 @@ int main(int argc, char **argv) {
     sl::Mat image;
     cv::Mat bgr;
     sl::Mat point_cloud;
+    cv::Mat point_cloud_mat;
     sl::Pose pose;
 
     while (ros::ok()) {
@@ -79,15 +80,16 @@ int main(int argc, char **argv) {
 
             // grab from zed
             zed.retrieveImage(image, sl::VIEW::LEFT);
-            zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA);
+            zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA, sl::MEM::CPU, sl::Resolution(720, 1280));
 
             cv::Mat bgra{static_cast<int>(image.getHeight()), static_cast<int>(image.getWidth()), CV_8UC4, image.getPtr<sl::uchar1>()};
             cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
 
             // pc is width x height with each point having 8 32-bit float channels (x, y, z, rgb, normal_x, normal_y, normal_z, curvature)
             // since there's no CV_32FC8, we use CV_64FC4 cuz same number of bytes
-            cv::Mat point_cloud_mat{static_cast<int>(point_cloud.getHeight()), static_cast<int>(point_cloud.getWidth()), CV_32FC4, point_cloud.getPtr<sl::uchar1>()};
-            ROS_INFO("Matrix width: %d, height: %d", point_cloud_mat.cols, point_cloud_mat.rows);
+            // EDIT: This isn't true or something check line 131
+            unsigned char * pc_ptr = point_cloud.getPtr<sl::uchar1>();
+            std::vector<uint8_t> pc_arr = std::vector<uint8_t>(pc_ptr, pc_ptr + (static_cast<int>(point_cloud.getHeight()) * static_cast<int>(point_cloud.getWidth()) * 32));
             sl::POSITIONAL_TRACKING_STATE status = zed.getPosition(pose);
             if (status == sl::POSITIONAL_TRACKING_STATE::OK) {
                 sl::Translation const& translation = pose.getTranslation();
@@ -123,14 +125,14 @@ int main(int argc, char **argv) {
             // publish left point cloud
             sensor_msgs::PointCloud2 pc_msg;
             pc_msg.header = header;
-            pc_msg.height = point_cloud_mat.rows;
-            pc_msg.width = point_cloud_mat.cols;
+            pc_msg.height = point_cloud.getHeight();
+            pc_msg.width = point_cloud.getWidth();
             fillPointCloudMessageHeader(pc_msg);
             pc_msg.is_bigendian = false;
             // TODO: ?????? math is not mathing??
-            pc_msg.point_step = 16;
-            pc_msg.row_step = 16 * point_cloud_mat.cols;
-            pc_msg.data = std::vector<uint8_t>(point_cloud_mat.data, point_cloud_mat.data + point_cloud_mat.total() * point_cloud_mat.elemSize());
+            pc_msg.point_step = 32;
+            pc_msg.row_step = 32 * point_cloud.getWidth();
+            pc_msg.data = pc_arr;
             pub_left_pc.publish(pc_msg);
 
         } else {
