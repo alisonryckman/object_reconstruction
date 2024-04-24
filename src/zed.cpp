@@ -49,6 +49,10 @@ int main(int argc, char **argv) {
     sl::InitParameters init_params;
     init_params.camera_resolution = sl::RESOLUTION::HD720;
     init_params.camera_fps = 60;
+    init_params.coordinate_units = sl::UNIT::METER;
+    init_params.depth_mode = sl::DEPTH_MODE::PERFORMANCE;
+    init_params.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD; // Match ROS
+    init_params.depth_maximum_distance = 12.0f;
     init_params.depth_mode = sl::DEPTH_MODE::PERFORMANCE;
 
     if (zed.open(init_params) != sl::ERROR_CODE::SUCCESS) {
@@ -61,6 +65,8 @@ int main(int argc, char **argv) {
 
     // TODO: err handle
     sl::PositionalTrackingParameters trackingParams;
+    trackingParams.enable_pose_smoothing = true;
+    trackingParams.enable_area_memory = true;
     auto err = zed.enablePositionalTracking(trackingParams);
 
     sl::Mat image;
