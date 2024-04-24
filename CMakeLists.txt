@@ -17,10 +17,23 @@ find_package(catkin REQUIRED COMPONENTS
         message_generation
 )
 
+find_package(manif REQUIRED)
+if (NOT manif_FOUND)
+    if (EXISTS ${CMAKE_CURRENT_LIST_DIR}/../deps/manif/include/manif)
+        add_subdirectory(deps/manif SYSTEM)
+        add_library(MANIF::manif ALIAS manif)
+
+        set(manif_FOUND TRUE)
+    else ()
+        message(FATAL_ERROR "Manif not found. If on Ubuntu install with 'sudo apt install -f ./pkg/libmanif-dev.deb'. Or build from source with 'submodule update --init deps/manif' and make sure it is non-empty")
+    endif ()
+endif ()
+
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 find_package(OpenCV REQUIRED)
 find_package(ZED QUIET)
+find_package(Eigen3 REQUIRED)
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
@@ -102,6 +115,9 @@ catkin_python_setup()
 ## Declare things to be passed to dependent projects
 ## INCLUDE_DIRS: uncomment this if your package contains header files
 ## LIBRARIES: libraries you create in this project that dependent projects also need
+add_library(lie utils/lie/lie.cpp utils/lie/lie.hpp utils/lie)
+target_link_libraries(lie PUBLIC Eigen3::Eigen MANIF::manif)
+
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
@@ -138,7 +154,7 @@ include_directories(
 
 if (ZED_FOUND)
         add_executable(zed src/zed.cpp)
-        target_link_libraries(zed ${catkin_LIBRARIES} ${ZED_LIBRARIES} ${CUDA_CUDA_LIBRARY} ${CUDA_CUDART_LIBRARY} ${CUDA_NPP_LIBRARIES_ZED} opencv_core opencv_imgcodecs)
+        target_link_libraries(zed ${catkin_LIBRARIES} ${ZED_LIBRARIES} opencv_core opencv_imgcodecs lie)
         target_include_directories(zed PUBLIC ${ZED_INCLUDE_DIRS} ${CUDA_INCLUDE_DIRS})
 endif()
 

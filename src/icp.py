@@ -10,7 +10,7 @@ except ImportError:
     print('To visualize you need to install Open3D. \n \t>> You can use "$ pip install open3d"')
     visualize = False
 
-from assignment_4_helper import ICPVisualizer, load_point_cloud, view_point_cloud, quaternion_matrix, \
+from utils.assignment_4_helper import ICPVisualizer, load_point_cloud, view_point_cloud, quaternion_matrix, \
     quaternion_from_axis_angle, load_pcs_and_camera_poses, save_point_cloud
 
 from sensor_msgs.msg import PointCloud2
