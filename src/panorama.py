@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 
+import sys
+
+# TODO: JANK LOL
+sys.path.append('/home/alison/class/eecs442/cv_ws/src/object_reconstruction')
+
 import numpy as np
 from sensor_msgs.msg import PointCloud2, Image
 from std_msgs.msg import Header
-from mrover.msg import Position
-import sensor_msgs.point_cloud2 as pc2
 import tf2_ros
-from util.SE3 import SE3
-
+from utils.SE3 import SE3
 
 import rospy
 import sys
@@ -16,22 +18,21 @@ import actionlib
 import cv2
 import time
 
-from mrover.msg import CapturePanoramaAction, CapturePanoramaFeedback, CapturePanoramaResult, CapturePanoramaGoal
 from sensor_msgs.point_cloud2 import PointCloud2
 
 class Panorama:
 
     def __init__(self, name):
-        self._action_name = name
-        self._as = actionlib.SimpleActionServer(self._action_name, CapturePanoramaAction, execute_cb=self.capture_panorama, auto_start=False)
-        self.tf_buffer = None
-        self.listener = None
+        self.pc_subscriber = rospy.Subscriber("/zed/left/point_cloud", PointCloud2, self.pc_callback, queue_size=1)
+        self.img_subscriber = rospy.Subscriber("/zed/left/image", Image, self.image_callback, queue_size=1)
+        self.pc_publisher = rospy.Publisher("/stitched_pc", PointCloud2)
+        self.tf_buffer = tf2_ros.Buffer()
+        self.listener = tf2_ros.TransformListener(self.tf_buffer)
+
         self.img_list = []
         self.current_img = None
         self.current_pc = None
         self.arr_pc = None
-        # TODO: Why no auto start?
-        self._as.start()
 
     def rotate_pc(self, trans_mat : np.ndarray, pc : np.ndarray):
         # rotate the provided point cloud's x, y points by the se3_pose
@@ -51,46 +52,34 @@ class Panorama:
         # extract xyzrgb fields
         # get every tenth point to make the pc sparser
         # TODO: dtype hard-coded to float32
-        self.arr_pc = np.frombuffer(bytearray(msg.data), dtype=np.float32).reshape(msg.height * msg.width, int(msg.point_step / 4))[0::10,:]
+        self.arr_pc = np.frombuffer(bytearray(msg.data), dtype=np.float32).reshape(msg.height * msg.width, int(32 / 4))[0::30,:]
 
     def image_callback(self, msg: Image):
-        self.current_img = cv2.cvtColor(np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 4), cv2.COLOR_RGBA2RGB)
+        self.current_img = cv2.cvtColor(np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3), cv2.COLOR_RGBA2RGB)
 
-    def capture_panorama(self, goal: CapturePanoramaGoal):
-        # self.position_subscriber = rospy.Subscriber("/mast_status", MotorsStatus, self.position_callback, callback_args = Position, queue_size=1)
-        self.pc_subscriber = rospy.Subscriber("/mast_camera/left/points", PointCloud2, self.pc_callback, queue_size=1)
-        self.img_subscriber = rospy.Subscriber("/mast_camera/left/image", Image, self.image_callback, queue_size=1)
-        self.mast_pose = rospy.Publisher("/mast_gimbal_position_cmd", Position, queue_size=1)
-        self.pc_publisher = rospy.Publisher("/stitched_pc", PointCloud2)
-        self.tf_buffer = tf2_ros.Buffer()
-        self.listener = tf2_ros.TransformListener(self.tf_buffer)
+    def capture_panorama(self, pc_increments : int):
 
         time.sleep(1)
 
         try:
             for i in range(3):
-                zed_in_base = SE3.transform_matrix(SE3.from_tf_time(self.tf_buffer, "odom", "zed_base_link")[0])
+                zed_in_base = SE3.transform_matrix(SE3.from_tf_time(self.tf_buffer, "odom", "zed_left_camera_frame")[0])
                 break
         except:
-            rospy.loginfo("Failed to get transform from map to zed_base_link")
+            rospy.loginfo("Failed to get transform from odom to zed_base_link")
         # TODO: Don't hardcode or parametrize this?
-        angle_inc = 0.2 # in radians
-        current_angle = 0.0
+
         stitched_pc = np.empty((0,8), dtype=np.float32)
         
-        while (current_angle < goal.angle):
+        for i in range(pc_increments):
 
             # allow gimbal to come to rest
             time.sleep(0.5)
             
-            if self._as.is_preempt_requested():
-                rospy.loginfo('%s: Preempted and stopped by operator' % self._action_name)
-                self._as.set_preempted()
-                break
             if self.current_img is None:
                 pass
             try:
-                zed_in_base_current = SE3.transform_matrix(SE3.from_tf_time(self.tf_buffer, "odom", "zed_base_link")[0])
+                zed_in_base_current = SE3.transform_matrix(SE3.from_tf_time(self.tf_buffer, "odom", "zed_left_camera_frame")[0])
                 tf_diff = np.linalg.inv(zed_in_base) @ zed_in_base_current
                 rotated_pc = self.rotate_pc(tf_diff, self.arr_pc)
                 stitched_pc = np.vstack((stitched_pc, rotated_pc))
@@ -98,34 +87,29 @@ class Panorama:
                 pass
 
             self.img_list.append(np.copy(self.current_img))
-            rospy.loginfo("rotating mast...")
-            current_angle += angle_inc
-            self.mast_pose.publish(Position(["mast_gimbal_z"], [current_angle]))
-            self._as.publish_feedback(CapturePanoramaFeedback(current_angle / goal.angle))
 
-        rospy.loginfo("Creating Panorama using %s images...", str(len(self.img_list)))
-        stitcher = cv2.Stitcher.create()
+        # rospy.loginfo("Creating Panorama using %s images...", str(len(self.img_list)))
+        # stitcher = cv2.Stitcher.create()
 
         # TODO Handle exceptions in stitching and write to relative path
-        status, pano = stitcher.stitch(self.img_list)
+        # status, pano = stitcher.stitch(self.img_list)
 
+        header = Header()
         # construct image msg
-        try:
-            header = Header()
-            img_msg = Image()
-            img_msg.header = header
-            img_msg.height = pano.shape[0]
-            img_msg.width = pano.shape[1]
-            img_msg.encoding = "rgb8"
-            img_msg.data = pano.tobytes()
-            img_msg.step = len(pano[0]) * 3
-        except:
-            rospy.loginfo("Failed to create image message")
-            self._as.set_aborted()
-            return
-        
-        self._as.set_succeeded(CapturePanoramaResult(panorama=img_msg)) # TODO: replace with temp_img with stitched img
+        # try:
 
+            # img_msg = Image()
+        #     img_msg.header = header
+        #     img_msg.height = pano.shape[0]
+        #     img_msg.width = pano.shape[1]
+        #     img_msg.encoding = "rgb8"
+        #     img_msg.data = pano.tobytes()
+        #     img_msg.step = len(pano[0]) * 3
+        # except:
+        #     rospy.loginfo("Failed to create image message")
+        #     self._as.set_aborted()
+        #     return
+        
         # construct pc from stitched
         try:
             pc_msg = PointCloud2()
@@ -148,9 +132,10 @@ class Panorama:
             rospy.loginfo("Failed to create point cloud message")
             return
 
-def main() -> int:
+def main():
     rospy.init_node(name="panorama")
     pano = Panorama(rospy.get_name())
+    pano.capture_panorama(5)
     rospy.spin()
 
 if __name__ == "__main__":
