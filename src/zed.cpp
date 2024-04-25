@@ -19,15 +19,12 @@
 void fillPointCloudMessageHeader(sensor_msgs::PointCloud2 &msg) {
     sensor_msgs::PointCloud2Modifier modifier{msg};
     modifier.setPointCloud2Fields(
-            8,
+            4,
             "x", 1, sensor_msgs::PointField::FLOAT32,
             "y", 1, sensor_msgs::PointField::FLOAT32,
             "z", 1, sensor_msgs::PointField::FLOAT32,
-            "rgb", 1, sensor_msgs::PointField::FLOAT32, // by convention rgb is stored as float32 even thought it is three bytes
-            "normal_x", 1, sensor_msgs::PointField::FLOAT32,
-            "normal_y", 1, sensor_msgs::PointField::FLOAT32,
-            "normal_z", 1, sensor_msgs::PointField::FLOAT32,
-            "curvature", 1, sensor_msgs::PointField::FLOAT32);
+            "rgb", 1, sensor_msgs::PointField::FLOAT32 // by convention rgb is stored as float32 even thought it is three bytes
+    );
 }
 
 int main(int argc, char **argv) {
@@ -85,11 +82,8 @@ int main(int argc, char **argv) {
             cv::Mat bgra{static_cast<int>(image.getHeight()), static_cast<int>(image.getWidth()), CV_8UC4, image.getPtr<sl::uchar1>()};
             cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
 
-            // pc is width x height with each point having 8 32-bit float channels (x, y, z, rgb, normal_x, normal_y, normal_z, curvature)
-            // since there's no CV_32FC8, we use CV_64FC4 cuz same number of bytes
-            // EDIT: This isn't true or something check line 131
             unsigned char * pc_ptr = point_cloud.getPtr<sl::uchar1>();
-            std::vector<uint8_t> pc_arr = std::vector<uint8_t>(pc_ptr, pc_ptr + (static_cast<int>(point_cloud.getHeight()) * static_cast<int>(point_cloud.getWidth()) * 32));
+            std::vector<uint8_t> pc_arr = std::vector<uint8_t>(pc_ptr, pc_ptr + (static_cast<int>(point_cloud.getHeight()) * static_cast<int>(point_cloud.getWidth()) * 16));
             sl::POSITIONAL_TRACKING_STATE status = zed.getPosition(pose);
             if (status == sl::POSITIONAL_TRACKING_STATE::OK) {
                 sl::Translation const& translation = pose.getTranslation();
@@ -130,8 +124,8 @@ int main(int argc, char **argv) {
             fillPointCloudMessageHeader(pc_msg);
             pc_msg.is_bigendian = false;
             // TODO: ?????? math is not mathing??
-            pc_msg.point_step = 32;
-            pc_msg.row_step = 32 * point_cloud.getWidth();
+            pc_msg.point_step = 16;
+            pc_msg.row_step = 16 * point_cloud.getWidth();
             pc_msg.data = pc_arr;
             pub_left_pc.publish(pc_msg);
 
