@@ -1,0 +1,9 @@
+# Ignore directory used by JetBrains IDEs like PyCharm
+.idea/
+
+# Ignore specific files by pattern
+# This pattern assumes that any files with .bag extension preceded by a timestamp like 2024-04-24-16-45-33 will be ignored
+*.bag
+
+# Ignore Python bytecode directory
+src/__pycache__/

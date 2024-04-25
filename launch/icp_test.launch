@@ -1,0 +1,6 @@
+<launch>
+<node name="icp_node" pkg="object_reconstruction" type="icp.py" output="screen"/>
+<node pkg="rosbag" type="play" name="player" output="screen" args="2024-04-24-16-45-33.bag"/>
+
+
+</launch>
