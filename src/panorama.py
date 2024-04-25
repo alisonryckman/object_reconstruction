@@ -52,7 +52,7 @@ class Panorama:
         # extract xyzrgb fields
         # get every tenth point to make the pc sparser
         # TODO: dtype hard-coded to float32
-        self.arr_pc = np.frombuffer(bytearray(msg.data), dtype=np.float32).reshape(msg.height * msg.width, int(32 / 4))[0::30,:]
+        self.arr_pc = np.frombuffer(bytearray(msg.data), dtype=np.float32).reshape(msg.height * msg.width, int(msg.point_step / 4))[0::30,:]
 
     def image_callback(self, msg: Image):
         self.current_img = cv2.cvtColor(np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3), cv2.COLOR_RGBA2RGB)
@@ -69,7 +69,7 @@ class Panorama:
             rospy.loginfo("Failed to get transform from odom to zed_base_link")
         # TODO: Don't hardcode or parametrize this?
 
-        stitched_pc = np.empty((0,8), dtype=np.float32)
+        stitched_pc = np.empty((0,4), dtype=np.float32)
         
         for i in range(pc_increments):
 
