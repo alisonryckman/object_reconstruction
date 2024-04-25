@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
 
             // grab from zed
             zed.retrieveImage(image, sl::VIEW::LEFT);
-            zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA, sl::MEM::CPU, sl::Resolution(720, 1280));
+            zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA, sl::MEM::CPU, sl::Resolution(1280, 720));
 
             cv::Mat bgra{static_cast<int>(image.getHeight()), static_cast<int>(image.getWidth()), CV_8UC4, image.getPtr<sl::uchar1>()};
             cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
