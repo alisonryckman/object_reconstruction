@@ -89,11 +89,12 @@ class ICP:
         image = self.current_pc
         image_filtered = self.filter_point_cloud(image)
 
-        t, R = self.custom_icp(self.pointcloud2_to_numpy(scene), self.pointcloud2_to_numpy(image_filtered), num_iterations=70)
+        t, R = self.custom_icp(self.pointcloud2_to_numpy(scene), self.pointcloud2_to_numpy(image_filtered), num_iterations=50)
         rotated_pc = self.transform_point_cloud(image_filtered, t, R)
         self.stitched_pc = np.vstack((self.stitched_pc, rotated_pc))
-        rows_to_keep = np.random.choice([True, False], size=self.stitched_pc.shape[0], p=[0.5, 0.5])
-        self.stitched_pc = self.stitched_pc[rows_to_keep]
+        if (np.shape(self.stitched_pc)[0] >= 60000):
+            rows_to_keep = np.random.choice([True, False], size=self.stitched_pc.shape[0], p=[0.5, 0.5])
+            self.stitched_pc = self.stitched_pc[rows_to_keep]
         # ROS_pc = self.numpy_to_pointcloud2(self.stitched_pc)
         print("publishing")
         self.pc_publisher.publish(self.numpy_to_pointcloud2(self.stitched_pc))
