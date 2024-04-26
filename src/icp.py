@@ -70,7 +70,7 @@ class ICP:
     def pc_callback(self, msg: PointCloud2):
         # only stitch a pc every two seconds
         #print("test")
-        if (rospy.Time.now() - self.last_recorded_ts).to_sec() < 2:
+        if (rospy.Time.now() - self.last_recorded_ts).to_sec() < 15:
             return
         self.last_recorded_ts = rospy.Time.now()
         # extract xyzrgb fields
@@ -80,40 +80,23 @@ class ICP:
 
         rospy.loginfo(np.shape(self.current_pc))
         if self.stitched_pc is None:
+            print("first iteration, no ICP")
             self.stitched_pc = self.filter_point_cloud(self.current_pc)
+            self.pc_publisher.publish(self.numpy_to_pointcloud2(self.stitched_pc))
             return
-
-        R_init = quaternion_matrix(quaternion_from_axis_angle(axis=np.array([0, 0, 1]), angle=np.pi / 2))
-        t_init = np.mean(self.current_pc[:, :3], axis=0)
-        t_init[-1] = 0
 
         scene = self.stitched_pc
         image = self.current_pc
         image_filtered = self.filter_point_cloud(image)
 
-        int_values = image_filtered.view(np.uint32)
-
-        # # Now, extract individual RGBA channels by bit manipulation
-        # r_channel = (int_values >> 24) & 0xFF  # Shift right by 24 bits and take the last 8 bits
-        # g_channel = (int_values >> 16) & 0xFF  # Shift right by 16 bits and take the last 8 bits
-        # b_channel = (int_values >> 8) & 0xFF  # Shift right by 8 bits and take the last 8 bits
-        # a_channel = int_values & 0xFF  # Take the last 8 bits for the alpha channel
-        #
-        # # Note: In the previous code, the order is ARGB, if you need RGBA specifically, adjust the order as needed.
-        #
-        # # Combine channels into an Nx4 array
-        # rgba_array = np.stack((r_channel, g_channel, b_channel, a_channel), axis=-1)
-        #
-        # # If you want the resulting array to be in uint8 format (which is typical for RGBA values)
-        # rgba_array = rgba_array.astype(np.uint8)
-
-        print(bin(int_values[5,3]))
-
-        t, R = self.custom_icp(scene, image_filtered, num_iterations=70, t_init=t_init, R_init=R_init)
-        rotated_pc = self.transform_point_cloud (image, t, R)
+        t, R = self.custom_icp(self.pointcloud2_to_numpy(scene), self.pointcloud2_to_numpy(image_filtered), num_iterations=70)
+        rotated_pc = self.transform_point_cloud(image_filtered, t, R)
         self.stitched_pc = np.vstack((self.stitched_pc, rotated_pc))
+        rows_to_keep = np.random.choice([True, False], size=self.stitched_pc.shape[0], p=[0.5, 0.5])
+        self.stitched_pc = self.stitched_pc[rows_to_keep]
         # ROS_pc = self.numpy_to_pointcloud2(self.stitched_pc)
-        self.pc_publisher.publish(self.numpy_to_pointcloud2(image_filtered))
+        print("publishing")
+        self.pc_publisher.publish(self.numpy_to_pointcloud2(self.stitched_pc))
 
 
     def find_closest_points(self, point_cloud_A, point_cloud_B):
@@ -198,9 +181,7 @@ class ICP:
         model = np.copy(point_cloud_B)
         model_tf = self.transform_point_cloud(model, t_init, R_init)
         closest_points = self.find_closest_points(scene, model_tf)
-        print(np.shape(closest_points))
-        print(np.shape(model_tf))
-        print(closest_points)
+        print("stepped")
         translation_update, rotation_update = self.find_best_transform(scene, model_tf[closest_points])
 
         R = rotation_update @ R_init
@@ -210,7 +191,7 @@ class ICP:
         return t, R, correspondences
 
 
-    def icp(self, point_cloud_A, point_cloud_B, num_iterations=50, t_init=None, R_init=None, visualize=True):
+    def icp(self, point_cloud_A, point_cloud_B, num_iterations=50, t_init=None, R_init=None, visualize=False):
         """
         Find the
         :param point_cloud_A: np.array of size (N_a, 6) (scene)
@@ -234,6 +215,7 @@ class ICP:
         correspondences = None  # Initialization waiting for a value to be assigned
         if visualize:
             vis.view_icp(R=R, t=t)
+        print("icpeeing")
         for i in range(num_iterations):
             # ------------------------------------------------
             # FILL WITH YOUR CODE
@@ -244,7 +226,7 @@ class ICP:
                 vis.plot_correspondences(correspondences)   # Visualize point correspondences
                 time.sleep(0.1)  # Wait so we can visualize the correspondences
                 vis.view_icp(R, t)  # Visualize icp iteration
-
+        print("done")
         return t, R
 
 
@@ -296,7 +278,7 @@ class ICP:
         return filtered_data
 
 
-    def custom_icp(self, point_cloud_A, point_cloud_B, num_iterations=50, t_init=None, R_init=None, visualize=True):
+    def custom_icp(self, point_cloud_A, point_cloud_B, num_iterations=50, t_init=None, R_init=None, visualize=False):
         """
             Find the
             :param point_cloud_A: np.array of size (N_a, 6) (scene)
@@ -330,6 +312,16 @@ class ICP:
         pc_msg.is_dense = self.first_pc.is_dense
         pc_msg.data = (points.flatten()).tobytes()
         return pc_msg
+
+    def pointcloud2_to_numpy(self, points):
+        points = points.view(np.uint32)
+        rgba_value = points[:, 3]
+        r_channel = ((rgba_value >> 24) & 0xFF).reshape(-1, 1)  # Shift right by 24 bits and take the last 8 bits
+        g_channel = ((rgba_value >> 16) & 0xFF).reshape(-1, 1)  # Shift right by 16 bits and take the last 8 bits
+        b_channel = ((rgba_value >> 8) & 0xFF).reshape(-1, 1)  # Shift right by 8 bits and take the last 8 bits
+        a_channel = (rgba_value & 0xFF).reshape(-1, 1)  # Take the last 8 bits for the alpha channel
+
+        return np.hstack((points[:, 0:4], r_channel, g_channel, b_channel)).view(np.float32)
 
 if __name__ == '__main__':
     rospy.init_node(name="icp_node")
